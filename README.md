@@ -1,6 +1,6 @@
 # ABN News
 
-**Autor:** Andy Bencomo del Río — Estudiante de Ingeniería de Software, 7mo semestre.
+ Andy Bencomo del Río — Estudiante de Ingeniería de Software, 7mo semestre.
 
 ABN News es un agregador de noticias que extrae contenido de fuentes RSS (BBC, TechCrunch, NYT) y las organiza por categorías. Está pensado para quienes quieren aprender a montar su propio sitio de noticias sin depender de APIs costosas ni presupuestos grandes.
 
