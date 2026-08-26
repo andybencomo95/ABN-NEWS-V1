@@ -12,12 +12,12 @@ import (
 )
 
 type Poller struct {
-	store   *store.Store
-	fetcher *Fetcher
-	logger  *slog.Logger
-	wg      sync.WaitGroup
-	cancel  context.CancelFunc
-	wiki    *WikipediaClient
+	store    *store.Store
+	fetcher  *Fetcher
+	logger   *slog.Logger
+	wg       sync.WaitGroup
+	cancel   context.CancelFunc
+	wiki     *WikipediaClient
 	breakers sync.Map // sourceID -> *CircuitBreaker
 }
 
@@ -140,8 +140,8 @@ func (p *Poller) fetchSource(ctx context.Context, src models.Source) {
 			Title:       item.Title,
 			Slug:        "",
 			URL:         item.Link,
-			Content:     item.Content,
-			Excerpt:     truncateText(item.Description, 300),
+			Content:     sanitizeHTML(item.Content),
+			Excerpt:     truncateText(sanitizeHTML(item.Description), 300),
 			ImageURL:    imgURL,
 			Author:      item.Author,
 			PublishedAt: publishedAt,
@@ -215,19 +215,16 @@ func (p *Poller) getCategorySlug(ctx context.Context, categoryID int64) string {
 	return ""
 }
 
-// fetchWikipediaImage tries to find a Wikipedia image for an article without one
+// fetchWikipediaImage tries to find a Wikipedia/Commons image for an article without one.
+// Uses multi-strategy: exact page lookup, Wikipedia search, Commons search.
 func (p *Poller) fetchWikipediaImage(ctx context.Context, articleID int64, title string) {
-	keyword := ExtractKeyword(title)
-	if keyword == "" {
-		return
-	}
-
-	imgURL, err := p.wiki.FetchImage(ctx, keyword)
+	imgURL, err := p.wiki.FetchImage(ctx, title)
 	if err != nil {
-		p.logger.Debug("wikipedia image fetch failed", "keyword", keyword, "error", err)
+		p.logger.Debug("image search failed", "title", title, "error", err)
 		return
 	}
 	if imgURL == "" {
+		p.logger.Debug("no image found for article", "title", title)
 		return
 	}
 
@@ -243,4 +240,3 @@ func truncateText(s string, maxLen int) string {
 	}
 	return string(runes[:maxLen]) + "..."
 }
-

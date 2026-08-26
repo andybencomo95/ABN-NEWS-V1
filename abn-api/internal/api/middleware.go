@@ -57,8 +57,9 @@ func CacheMiddleware(cache *cache.Cache, ttl time.Duration) gin.HandlerFunc {
 
 		c.Next()
 
-		// Store in cache if successful and not empty
-		if c.Writer.Status() == http.StatusOK && len(w.body.Bytes()) > 10 {
+		// Store in cache only if successful, not empty, and the handler didn't
+		// request to skip caching (e.g. a response with failed translations).
+		if c.Writer.Status() == http.StatusOK && len(w.body.Bytes()) > 10 && c.Writer.Header().Get("X-Cache-Skip") == "" {
 			_ = cache.Set(ctx, key, w.body.Bytes(), ttl)
 		}
 	}

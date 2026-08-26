@@ -18,6 +18,7 @@ func NewRouter(st *store.Store, cache *cache.Cache, translator *translate.Client
 	articles := NewArticleHandler(st, translator)
 	categories := NewCategoryHandler(st)
 	sources := NewSourceHandler(st)
+	images := NewImageRefetchHandler(st)
 
 	apiGroup := r.Group("/api")
 	apiGroup.Use(CacheMiddleware(cache, 30*time.Minute))
@@ -29,6 +30,9 @@ func NewRouter(st *store.Store, cache *cache.Cache, translator *translate.Client
 
 	// Health endpoint (no cache)
 	r.GET("/api/sources/health", sources.Health)
+
+	// Image refetch (no cache, background job)
+	r.POST("/api/images/refetch", images.RefetchImages)
 
 	return r
 }

@@ -54,14 +54,26 @@ type Item struct {
 }
 
 var imgSrcRegex = regexp.MustCompile(`<img[^>]+src="([^"]+)"`)
+var imgDataSrcRegex = regexp.MustCompile(`<img[^>]+data-src="([^"]+)"`)
+var imgDataOriginalRegex = regexp.MustCompile(`<img[^>]+data-original="([^"]+)"`)
+var metaOgImageRegex = regexp.MustCompile(`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`)
+var metaContentOgImageRegex = regexp.MustCompile(`<meta[^>]+content="([^"]+)"[^>]+property="og:image"`)
 
 func extractImageFromHTML(html string) string {
 	if html == "" {
 		return ""
 	}
-	matches := imgSrcRegex.FindStringSubmatch(html)
-	if len(matches) > 1 {
-		return matches[1]
+
+	// Try multiple patterns in priority order
+	for _, re := range []*regexp.Regexp{imgSrcRegex, imgDataSrcRegex, imgDataOriginalRegex, metaOgImageRegex, metaContentOgImageRegex} {
+		matches := re.FindStringSubmatch(html)
+		if len(matches) > 1 {
+			u := strings.TrimSpace(matches[1])
+			// Skip data URIs and empty/broken URLs
+			if u != "" && !strings.HasPrefix(u, "data:") && strings.HasPrefix(u, "http") {
+				return u
+			}
+		}
 	}
 	return ""
 }

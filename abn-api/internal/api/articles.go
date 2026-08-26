@@ -39,7 +39,9 @@ func (h *ArticleHandler) List(c *gin.Context) {
 	}
 
 	if lang == "es" && h.translator != nil {
-		translateArticleList(c.Request.Context(), h.translator, articles.Articles)
+		if err := translateArticleList(c.Request.Context(), h.translator, articles.Articles); err != nil {
+			c.Header("X-Cache-Skip", "1")
+		}
 	}
 
 	c.JSON(http.StatusOK, articles)
@@ -56,15 +58,20 @@ func (h *ArticleHandler) GetBySlug(c *gin.Context) {
 	}
 
 	if lang == "es" && h.translator != nil {
-		translateSingleArticle(c.Request.Context(), h.translator, article)
+		if err := translateSingleArticle(c.Request.Context(), h.translator, article); err != nil {
+			c.Header("X-Cache-Skip", "1")
+		}
 	}
 
 	c.JSON(http.StatusOK, article)
 }
 
-func translateArticleList(ctx context.Context, t *translate.Client, articles []models.Article) {
+func translateArticleList(ctx context.Context, t *translate.Client, articles []models.Article) error {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5) // max 5 concurrent translations
+
+	var mu sync.Mutex
+	var firstErr error
 
 	for i := range articles {
 		wg.Add(1)
@@ -72,22 +79,39 @@ func translateArticleList(ctx context.Context, t *translate.Client, articles []m
 		go func(a *models.Article) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			translateSingleArticle(ctx, t, a)
+			if err := translateSingleArticle(ctx, t, a); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
 		}(&articles[i])
 	}
 	wg.Wait()
+	return firstErr
 }
 
-func translateSingleArticle(ctx context.Context, t *translate.Client, a *models.Article) {
+func translateSingleArticle(ctx context.Context, t *translate.Client, a *models.Article) error {
+	var firstErr error
 	if a.Title != "" {
-		if title, err := t.Translate(ctx, a.Title, "en", "es"); err == nil {
+		title, err := t.Translate(ctx, a.Title, "en", "es")
+		if err != nil {
+			firstErr = err
+		} else {
 			a.Title = title
 		}
 	}
 	if a.Excerpt != "" {
-		if excerpt, err := t.Translate(ctx, a.Excerpt, "en", "es"); err == nil {
+		excerpt, err := t.Translate(ctx, a.Excerpt, "en", "es")
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
 			a.Excerpt = excerpt
 		}
 	}
 	// Skip full content translation for list views (only translate title+excerpt)
+	return firstErr
 }

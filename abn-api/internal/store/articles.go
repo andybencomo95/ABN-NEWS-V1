@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,7 @@ func (s *Store) CreateArticle(ctx context.Context, input models.CreateArticleInp
 		&a.Content, &a.Excerpt, &a.ImageURL, &a.Author, &a.PublishedAt, &a.FetchedAt, &a.Hash,
 	)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, models.ErrDuplicateHash
 		}
 		return nil, fmt.Errorf("create article: %w", err)
@@ -114,8 +115,11 @@ func (s *Store) GetArticleBySlug(ctx context.Context, slug string) (*models.Arti
 		&a.ID, &a.SourceID, &a.CategoryID, &a.Title, &a.Slug, &a.URL,
 		&a.Content, &a.Excerpt, &a.ImageURL, &a.Author, &a.PublishedAt, &a.FetchedAt,
 	)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, models.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get article by slug: %w", err)
 	}
 	return &a, nil
 }
@@ -126,6 +130,60 @@ func (s *Store) UpdateArticleImage(ctx context.Context, id int64, imageURL strin
 		return fmt.Errorf("update article image: %w", err)
 	}
 	return nil
+}
+
+// ListArticlesWithDefaultImages returns articles that have the default category image,
+// so they can be re-fetched with better images.
+var defaultImagePatterns = []string{
+	"%Dampfturbine%",
+	"%Land_on_the_Moon%",
+	"%Youth-soccer%",
+	"%Map_of_countries%",
+	"%Bisonte%",
+	"%DNA_simple%",
+}
+
+func (s *Store) ListArticlesWithDefaultImages(ctx context.Context, limit int) ([]models.Article, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Build WHERE clause for default images
+	conditions := make([]string, len(defaultImagePatterns))
+	for i, pattern := range defaultImagePatterns {
+		conditions[i] = "a.image_url LIKE '" + pattern + "'"
+	}
+	whereClause := ""
+	for i, cond := range conditions {
+		if i == 0 {
+			whereClause = cond
+		} else {
+			whereClause += " OR " + cond
+		}
+	}
+
+	query := `
+		SELECT a.id, a.source_id, a.category_id, a.title, a.slug, a.url,
+			   COALESCE(a.content, '') as content, COALESCE(a.excerpt, '') as excerpt,
+			   COALESCE(a.image_url, '') as image_url, COALESCE(a.author, '') as author,
+			   a.published_at, a.fetched_at
+		FROM articles a
+		WHERE ` + whereClause + `
+		ORDER BY a.published_at DESC
+		LIMIT $1
+	`
+
+	rows, err := s.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list articles with default images: %w", err)
+	}
+	defer rows.Close()
+
+	articles, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[models.Article])
+	if err != nil {
+		return nil, fmt.Errorf("collect articles: %w", err)
+	}
+	return articles, nil
 }
 
 func createSlug(title string) string {
@@ -158,4 +216,3 @@ func createHash(url string, publishedAt interface{}) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%v", url, publishedAt)))
 	return fmt.Sprintf("%x", h)
 }
-
